@@ -50,3 +50,11 @@ dkms.conf
 
 # Local History for Visual Studio Code
 .history/
+
+# ---> Xmake (also ignore builds)
+.xmake/*
+build/*
+
+# Ignore backup and cached files
+backup/*
+builtin_resources/shaders/compiled/*
