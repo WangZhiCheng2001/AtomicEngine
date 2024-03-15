@@ -1,0 +1,8 @@
+target("Editor")
+    set_kind("binary")
+    add_includedirs("./")
+    add_files("./*.cpp")
+    -- add_files("./*/*.cpp")
+    add_deps("Engine")
+    add_deps("BuiltinResources")
+    add_packages("imgui", "spdlog", "glm")
