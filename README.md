@@ -10,6 +10,8 @@ a personal toy rendering engine/framework, based on modern Graphics API (only Vu
 - FreeImage
 - glm
 - spdlog
+- fast_obj
+- tinyxml2
 
 > most of depdencies are downloaded and installed automatically by Xmake.
 > the only dependency you need to confirm is VulkanSDK.
@@ -22,6 +24,6 @@ project building on windows 10 with MSVC v143 has been tested.
 
 ## Known issues
 
-- [ ] WAR sync error occured between buffer copy and indexed draw command in ImGui rendering pipeline.
+- [X] ~~WAR sync error occured between buffer copy and indexed draw command in ImGui rendering pipeline.~~
 - [ ] after interacting with ImGui, interacting with main window (SDL_window) is ignored.
 - [ ] wrong/incomplete destruction of resources when shutting down the engine (see function `Engine::deinitialize()`)

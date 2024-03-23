@@ -208,7 +208,16 @@ auto DescriptorSetBlock::tryAllocate(std::shared_ptr<Device> deviceHandle, uint3
         }
         allocatedSetCount += allocatedSets.size();
     }
-    count = count > validSetCount ? count - validSetCount : 0U;
+    if(count > validSetCount)
+    {
+        count -= validSetCount;
+        validSetCount = 0U;
+    }
+    else
+    {
+        validSetCount -= count;
+        count = 0U;
+    }
 
     return res;
 }

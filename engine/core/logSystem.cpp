@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "logSystem.hpp"
 
 LogSystem::LogSystem()
@@ -12,7 +14,7 @@ LogSystem::LogSystem()
 
     s_ringbufferSink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(128);
     s_ringbufferSink->set_level(spdlog::level::debug);
-    s_ringbufferSink->set_pattern("%^[%T] %n: %v (from %!, %@)%$");
+    s_ringbufferSink->set_pattern("[%l] %n: %v (from %!, %@)");
 
 #ifdef NDEBUG
     auto sinkList = spdlog::sinks_init_list{s_consoleSink, s_fileSink, s_ringbufferSink};

@@ -5,13 +5,27 @@
 #include "memoryAllocator.hpp"
 #include "barrierHelper.h"
 #include "allocationCallbacks.h"
+#include "utils.h"
 
 #include <hash.hpp>
+
+struct InternalResourceBase
+{
+protected:
+    std::shared_ptr<Device> m_deviceHandle{};
+    std::shared_ptr<MemoryAllocator> m_memAllocator{};
+
+    MemoryHandle m_memHandle{nullptr};
+    std::shared_ptr<QueueInstance> m_ownerQueue{};
+
+    vk::MemoryPropertyFlags m_memUsage{};
+    uint32_t m_memTypeFlag{};
+};
 
 /* ==================================================================================================== */
 /* ============================================== Buffer ============================================== */
 /* ==================================================================================================== */
-struct Buffer
+struct Buffer : public InternalResourceBase
 {
 public:
     Buffer(const Buffer &) = delete;
@@ -52,16 +66,8 @@ public:
     operator vk::DeviceAddress() const { return getDeviceAddress(); }
 
 protected:
-    std::shared_ptr<Device> m_deviceHandle{};
-    std::shared_ptr<MemoryAllocator> m_memAllocator{};
-
     vk::Buffer m_buffer{};
-    MemoryHandle m_memHandle{nullptr};
-    std::shared_ptr<QueueInstance> m_ownerQueue{};
-
     vk::BufferCreateInfo m_info{};
-    vk::MemoryPropertyFlags m_memUsage{};
-    uint32_t m_memTypeFlag{};
 
     std::unordered_map<vk::BufferViewCreateInfo, vk::BufferView, Aligned64Hasher<vk::BufferViewCreateInfo>> m_bufferViewMap{};
 };
@@ -69,7 +75,7 @@ protected:
 /* =================================================================================================== */
 /* ============================================== Image ============================================== */
 /* =================================================================================================== */
-struct Image
+struct Image : public InternalResourceBase
 {
 public:
     Image(const Image &) = delete;
@@ -112,17 +118,9 @@ public:
     operator MemoryHandle() const { return m_memHandle; }
 
 protected:
-    std::shared_ptr<Device> m_deviceHandle{};
-    std::shared_ptr<MemoryAllocator> m_memAllocator{};
-
     vk::Image m_image{};
-    MemoryHandle m_memHandle{nullptr};
-    std::shared_ptr<QueueInstance> m_ownerQueue{};
-    bool m_fromExternal{false};
-
     vk::ImageCreateInfo m_info{};
-    vk::MemoryPropertyFlags m_memUsage{};
-    uint32_t m_memTypeFlag{};
+    bool m_fromExternal{false};
 };
 
 inline uint32_t calMipLevel(const vk::Extent2D &size)
@@ -180,10 +178,18 @@ inline vk::ImageCreateInfo makeImageCubeCreateInfo(const vk::Extent2D &size,
 
 inline vk::ImageViewCreateInfo makeImageViewCreateInfo(vk::Image image, const vk::ImageCreateInfo &imageInfo, bool isCube = false)
 {
+    vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor;
+    if (isDepthStencilFormat(imageInfo.format))
+    {
+        if (isDepthOnlyFormat(imageInfo.format))
+            aspect = vk::ImageAspectFlagBits::eDepth;
+        else
+            aspect = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+    }
     vk::ImageViewCreateInfo info{};
     info.setImage(image)
         .setFormat(imageInfo.format)
-        .setSubresourceRange(vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS});
+        .setSubresourceRange(vk::ImageSubresourceRange{aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS});
     switch (imageInfo.imageType)
     {
     case vk::ImageType::e1D:

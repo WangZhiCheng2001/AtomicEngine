@@ -53,31 +53,24 @@ void Engine::deinitialize()
         m_mainWindow->close();
 }
 
-void Engine::newFrame()
+void Engine::resize(const std::pair<uint32_t, uint32_t> &size)
 {
-    m_mainWindow->processEvents();
-    m_imguiWindowHandle->newFrame();
-}
+    if (size.first == 0 || size.second == 0)
+        return;
 
-void Engine::beginRender()
-{
-    m_renderSystem->beginFrame();
-}
-
-void Engine::internalRender()
-{
-    if (m_imguiRendererHandle)
-        m_imguiRendererHandle->render();
-}
-
-void Engine::endRender()
-{
-    m_renderSystem->endFrame();
-    if (!m_mainWindow)
-        closeWindow();
+    if (m_mainWindow)
+    {
+        m_renderSystem->m_dirtySwapchain = true;
+        m_renderSystem->m_extentSize = size;
+    }
 }
 
 Engine::Engine()
 {
     m_messageHandler = std::make_shared<MessageHandler>();
+    m_assetManager = std::make_shared<AssetManager>();
+
+    m_assetManager->registerImporter({".bmp", ".png", ".jpg"}, std::make_shared<TextureImporter>());
+    m_assetManager->registerImporter({".obj"}, std::make_shared<ModelImporter>());
+    m_assetManager->registerImporter({".xml"}, std::make_shared<XmlImporter>());
 }

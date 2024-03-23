@@ -346,9 +346,9 @@ void RenderSystem::resetSwapchain(uint32_t &width, uint32_t &height)
         ENGINE_LOG_CRITICAL("failed to find properiate on-the-fly frame size.");
     }
     auto surfaceCapabilities = m_adapterHandle->getSurfaceCapabilitiesKHR(*m_surface);
-    frameCount = std::min(frameCount, surfaceCapabilities.minImageCount);
-    if (surfaceCapabilities.maxImageCount && surfaceCapabilities.maxImageCount <= frameCount)
-        frameCount = surfaceCapabilities.maxImageCount;
+    frameCount = std::max(frameCount, surfaceCapabilities.minImageCount);
+    if (surfaceCapabilities.maxImageCount)
+        frameCount = std::min(frameCount, surfaceCapabilities.maxImageCount);
 
     vk::SwapchainCreateInfoKHR info{};
     info.setSurface(*m_surface)

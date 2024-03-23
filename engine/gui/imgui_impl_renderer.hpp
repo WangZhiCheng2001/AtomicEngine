@@ -5,7 +5,7 @@
 #include <imgui.h>
 #include <vulkan/vulkan.hpp>
 
-#include <texture.hpp>
+#include <resource/texture.hpp>
 #include <pipelineHelper.hpp>
 
 class guiWindow;
@@ -17,8 +17,10 @@ public:
     ~guiRenderer();
 
     void resetFontTexture();
+    void resetRenderPass(std::shared_ptr<GraphicsPass> pass, uint32_t subpassIndex);
 
-    void render();
+    void updateBuffers(std::shared_ptr<CommandBuffer> cmd);
+    void render(std::shared_ptr<CommandBuffer> cmd);
 
     friend class guiWindow;
 
@@ -31,5 +33,4 @@ private:
     /* resources for rendering */
     std::vector<LinkedBlockSuballocationHandle> m_vertexBuffers{};
     std::vector<LinkedBlockSuballocationHandle> m_indexBuffers{};
-    std::vector<std::shared_ptr<vk::Semaphore>> m_transferCompleteSemaphores{};
 };

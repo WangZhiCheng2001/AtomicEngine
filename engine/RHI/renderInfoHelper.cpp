@@ -2,14 +2,14 @@
 
 #include <utils.h>
 
-#include <texture.hpp>
+#include <resource/texture.hpp>
 #include "dataTransferHelper.hpp" // just used to instancing LinkedBlockSuballocationHandle, maybe need to change
 #include "renderInfoHelper.hpp"
 
-GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
-                                               const std::vector<AttachmentInfo> &attachments,
-                                               const std::vector<AttachmentLoadStoreInfo> &lsInfos,
-                                               const std::vector<GraphicsRenderSubpassInfo> &subpassInfos)
+GraphicsPass::GraphicsPass(std::shared_ptr<Device> device_,
+                           const std::vector<AttachmentInfo> &attachments,
+                           const std::vector<AttachmentLoadStoreInfo> &lsInfos,
+                           const std::vector<GraphicsRenderSubpassInfo> &subpassInfos)
     : m_deviceHandle(device_), m_subpassCount(std::max<uint32_t>(1U, subpassInfos.size()))
 {
     std::vector<vk::AttachmentDescription2> attachDescs{};
@@ -32,9 +32,16 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
                 .setStencilLoadOp(lsInfos[i].loadOp)
                 .setStencilStoreOp(lsInfos[i].storeOp);
 
-        m_initialLayouts.emplace_back(attachments[i].initialLayout);
+        m_initialLayouts.emplace_back(attach.initialLayout);
+        m_finalLayouts.emplace_back(attach.finalLayout);
     }
     m_attachmentAspects.resize(attachments.size());
+
+    // indicate the first/last subpass which loads/stores attachments
+    std::vector<uint32_t> attachLoadPass{};
+    std::vector<uint32_t> attachStorePass{};
+    attachLoadPass.assign(attachments.size(), ~0U);
+    attachStorePass.assign(attachments.size(), 0U);
 
     std::vector<std::vector<vk::AttachmentReference2>> inputAttachs{};
     std::vector<std::vector<vk::AttachmentReference2>> colorAttachs{};
@@ -46,7 +53,7 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
     depthStencilAttachs.resize(m_subpassCount);
     colorResolveAttachs.resize(m_subpassCount);
     depthResolveAttachs.resize(m_subpassCount);
-    for (auto i = 0; i < subpassInfos.size(); ++i)
+    for (auto i = 0U; i < subpassInfos.size(); ++i)
     {
         const auto &subpass = subpassInfos[i];
 
@@ -70,6 +77,8 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
                 .setAttachment(index)
                 .setAspectMask(vk::ImageAspectFlagBits::eColor);
             m_attachmentAspects[index] |= attach.aspectMask;
+            attachLoadPass[index] = std::min(attachLoadPass[index], i);
+            attachStorePass[index] = std::max(attachStorePass[index], i);
         }
 
         for (const auto &index : subpass.colorResolveAttachmentIndices)
@@ -79,6 +88,8 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
                 .setAttachment(index)
                 .setAspectMask(vk::ImageAspectFlagBits::eColor);
             m_attachmentAspects[index] |= attach.aspectMask;
+            attachLoadPass[index] = std::min(attachLoadPass[index], i);
+            attachStorePass[index] = std::max(attachStorePass[index], i);
         }
 
         if (subpass.enableDepthStencilAttachment)
@@ -92,8 +103,10 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
                 auto &attach = depthStencilAttachs[i].emplace_back();
                 attach.setLayout(iter->initialLayout == vk::ImageLayout::eUndefined ? vk::ImageLayout::eDepthStencilAttachmentOptimal : iter->initialLayout)
                     .setAttachment(index)
-                    .setAspectMask(vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil);
+                    .setAspectMask(isDepthOnlyFormat(attachments[index].format) ? vk::ImageAspectFlagBits::eDepth : (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil));
                 m_attachmentAspects[index] |= attach.aspectMask;
+                attachLoadPass[index] = std::min(attachLoadPass[index], i);
+                attachStorePass[index] = std::max(attachStorePass[index], i);
 
                 if (subpass.depthStencilResolveMode != vk::ResolveModeFlagBits::eNone)
                 {
@@ -102,6 +115,8 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
                         .setAttachment(subpass.depthResolveAttachmentIndex)
                         .setAspectMask(vk::ImageAspectFlagBits::eDepth);
                     m_attachmentAspects[subpass.depthResolveAttachmentIndex] |= attach_.aspectMask;
+                    attachLoadPass[subpass.depthResolveAttachmentIndex] = std::min(attachLoadPass[subpass.depthResolveAttachmentIndex], i);
+                    attachStorePass[subpass.depthResolveAttachmentIndex] = std::max(attachStorePass[subpass.depthResolveAttachmentIndex], i);
                 }
             }
         }
@@ -168,17 +183,57 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
         m_renderTargetCount.emplace_back(colorAttachs[i].size());
 
     std::vector<vk::SubpassDependency2> subpassDeps{};
-    subpassDeps.resize(m_subpassCount);
-    for (auto i = 0; i < m_subpassCount; ++i)
+    subpassDeps.resize(m_subpassCount - 1);
+    for (auto i = 0; i < m_subpassCount - 1; ++i)
     {
         auto &dep = subpassDeps[i];
-        dep.setSrcSubpass(i == 0 ? VK_SUBPASS_EXTERNAL : i - 1)
-            .setSrcAccessMask(i == 0 ? vk::AccessFlagBits::eNone : vk::AccessFlagBits::eColorAttachmentWrite)
-            .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
-            .setDstSubpass(i)
-            .setDstAccessMask(i + 1 == m_subpassCount ? vk::AccessFlagBits::eColorAttachmentWrite : vk::AccessFlagBits::eInputAttachmentRead)
-            .setDstStageMask(i + 1 == m_subpassCount ? vk::PipelineStageFlagBits::eColorAttachmentOutput : vk::PipelineStageFlagBits::eFragmentShader)
+        dep.setSrcSubpass(i)
+            .setDstSubpass(i + 1)
             .setDependencyFlags(vk::DependencyFlagBits::eByRegion);
+
+        if (!colorAttachs[i].empty() || !colorResolveAttachs[i].empty())
+        {
+            dep.srcStageMask |= vk::PipelineStageFlagBits::eColorAttachmentOutput;
+            dep.srcAccessMask |= vk::AccessFlagBits::eColorAttachmentWrite;
+        }
+        if (!depthStencilAttachs[i].empty() || !depthResolveAttachs[i].empty())
+        {
+            dep.srcStageMask |= vk::PipelineStageFlagBits::eLateFragmentTests;
+            dep.srcAccessMask |= vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        }
+        if (!inputAttachs[i].empty())
+        {
+            dep.dstStageMask |= vk::PipelineStageFlagBits::eFragmentShader;
+            dep.dstAccessMask |= vk::AccessFlagBits::eInputAttachmentRead;
+        }
+    }
+    // extra deps for attachments' load operations
+    // since color attachments may be externally initialized (such as swapchain image)
+    // and there may be layout transitions
+    for (auto i = 0; i < attachLoadPass.size(); ++i)
+    {
+        if (m_attachmentAspects[i] == vk::ImageAspectFlagBits::eColor)
+        {
+            auto &dep = subpassDeps.emplace_back();
+            dep.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+                .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+                .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+                .setDstSubpass(attachLoadPass[i])
+                .setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+                .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite)
+                .setDependencyFlags(vk::DependencyFlagBits::eByRegion);
+        }
+        else
+        {
+            auto &dep = subpassDeps.emplace_back();
+            dep.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+                .setSrcStageMask(vk::PipelineStageFlagBits::eNone)
+                .setSrcAccessMask(vk::AccessFlagBits::eNone)
+                .setDstSubpass(attachLoadPass[i])
+                .setDstStageMask(vk::PipelineStageFlagBits::eEarlyFragmentTests)
+                .setDstAccessMask(vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+                .setDependencyFlags(vk::DependencyFlagBits::eByRegion);
+        }
     }
 
     vk::RenderPassCreateInfo2 info{};
@@ -187,26 +242,17 @@ GraphicsRenderPassInfo::GraphicsRenderPassInfo(std::shared_ptr<Device> device_,
     m_pass = m_deviceHandle->createRenderPass2(info, allocationCallbacks);
 }
 
-GraphicsRenderPassInfo::~GraphicsRenderPassInfo()
+GraphicsPass::~GraphicsPass()
 {
     if (m_deviceHandle)
         m_deviceHandle->destroyRenderPass(m_pass, allocationCallbacks);
 }
 
-GraphicsFrameBuffer::GraphicsFrameBuffer(std::shared_ptr<GraphicsRenderPassInfo> renderpass, const std::vector<std::shared_ptr<Texture>> &buffers)
-    : m_passHandle(renderpass)
+FrameBufferInfo::FrameBufferInfo(const std::vector<std::shared_ptr<Texture>> &buffers)
+    : attachments(buffers)
 {
     if (buffers.empty())
         ENGINE_LOG_CRITICAL("cannot create framebuffer with no texture resource.");
-
-    if (buffers.size() < m_passHandle->m_attachmentAspects.size())
-    {
-        ENGINE_LOG_CRITICAL("input texture resources are less than required attachments of renderpass.");
-    }
-    else if (buffers.size() > m_passHandle->m_attachmentAspects.size())
-    {
-        ENGINE_LOG_WARN("input texture resources are more than required attachments of renderpass. They will be ignored.");
-    }
 
     std::set<vk::Extent3D> uniqueExtents{};
     std::transform(buffers.begin(), buffers.end(), std::inserter(uniqueExtents, uniqueExtents.end()), [](std::shared_ptr<Texture> ptr)
@@ -214,10 +260,25 @@ GraphicsFrameBuffer::GraphicsFrameBuffer(std::shared_ptr<GraphicsRenderPassInfo>
     if (uniqueExtents.size() > 1)
         ENGINE_LOG_CRITICAL("texture resources used to create framebuffer have different extent.");
 
-    std::vector<vk::ImageView> views{};
-    for (auto iter = buffers.begin(); iter != buffers.end(); ++iter)
+    extent = vk::Extent2D{uniqueExtents.begin()->width, uniqueExtents.begin()->height};
+}
+
+FrameBuffer::FrameBuffer(std::shared_ptr<Device> device, std::shared_ptr<GraphicsPass> renderpass, const FrameBufferInfo &info)
+    : m_passHandle(renderpass)
+{
+    if (info.attachments.size() < m_passHandle->m_attachmentAspects.size())
     {
-        size_t index = std::distance(buffers.begin(), iter);
+        ENGINE_LOG_CRITICAL("input texture resources are less than required attachments of renderpass.");
+    }
+    else if (info.attachments.size() > m_passHandle->m_attachmentAspects.size())
+    {
+        ENGINE_LOG_WARN("input texture resources are more than required attachments of renderpass. They will be ignored.");
+    }
+
+    std::vector<vk::ImageView> views{};
+    for (auto iter = info.attachments.begin(); iter != info.attachments.end(); ++iter)
+    {
+        size_t index = std::distance(info.attachments.begin(), iter);
         if (index >= m_passHandle->m_attachmentAspects.size())
             break;
         if (iter->operator->()->getType() != vk::ImageType::e2D)
@@ -225,18 +286,17 @@ GraphicsFrameBuffer::GraphicsFrameBuffer(std::shared_ptr<GraphicsRenderPassInfo>
         views.emplace_back(*(iter->operator->()->fetchView(m_passHandle->m_attachmentAspects[index])));
     }
 
-    vk::FramebufferCreateInfo info{};
-    info.setRenderPass(*m_passHandle)
+    vk::FramebufferCreateInfo createInfo{};
+    createInfo.setRenderPass(*m_passHandle)
         .setAttachments(views)
-        .setWidth(uniqueExtents.begin()->width)
-        .setHeight(uniqueExtents.begin()->height)
+        .setWidth(info.extent.width)
+        .setHeight(info.extent.height)
         .setLayers(1U);
 
-    m_buffer = m_passHandle->m_deviceHandle->createFramebuffer(info, allocationCallbacks);
-    m_extent = vk::Extent2D{uniqueExtents.begin()->width, uniqueExtents.begin()->height};
+    m_buffer = m_passHandle->m_deviceHandle->createFramebuffer(createInfo, allocationCallbacks);
 }
 
-GraphicsFrameBuffer::~GraphicsFrameBuffer()
+FrameBuffer::~FrameBuffer()
 {
     m_passHandle->m_deviceHandle->destroyFramebuffer(m_buffer, allocationCallbacks);
 }

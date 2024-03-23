@@ -51,26 +51,19 @@ guiRenderer::guiRenderer(vk::SampleCountFlagBits msaaSamples)
     m_pipeline = std::make_shared<GraphicsPipelineStateObject>(m_psoTemplate);
     m_pipeline->pushDescriptorUpdate("sTexture", m_fontTexture->getDescriptorInfo());
     {
-        ScopedCommandBuffer cmdBuffer{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer)};
-        m_pipeline->updateDescriptorSet(*cmdBuffer.getCommandBufferHandle());
+        ScopedCommandBuffer cmd{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer)};
+        m_pipeline->updateDescriptorSet(*cmd.getCommandBufferHandle());
     }
     io.Fonts->SetTexID(m_fontTexture.get());
 
     m_vertexBuffers.resize(Engine::getRenderSystem()->getParallelFrameCount());
     m_indexBuffers.resize(Engine::getRenderSystem()->getParallelFrameCount());
-    for (auto i = 0; i < Engine::getRenderSystem()->getParallelFrameCount(); ++i)
-        m_transferCompleteSemaphores.emplace_back(Engine::getRenderSystem()->getDeviceHandle()->requestSemaphore());
 }
 
 guiRenderer::~guiRenderer()
 {
     Engine::getRenderSystem()->getDeviceHandle()->waitIdle();
 
-    while (!m_transferCompleteSemaphores.empty())
-    {
-        Engine::getRenderSystem()->getDeviceHandle()->recycleResources(m_transferCompleteSemaphores.back());
-        m_transferCompleteSemaphores.pop_back();
-    }
     for (auto &buffer : m_vertexBuffers)
         if (buffer)
             Engine::getRenderSystem()->getDeviceHandle()->recycleResources(buffer);
@@ -107,7 +100,7 @@ void guiRenderer::resetFontTexture()
         .setMaxLod(1000)
         .setMaxAnisotropy(1.0);
 
-    m_fontTexture = std::make_shared<Texture>(Engine::getRenderSystem()->getDeviceHandle(), textureInfo, vk::ImageLayout::eTransferDstOptimal, samplerInfo);
+    m_fontTexture = Engine::getRenderSystem()->getDeviceHandle()->createTexture(textureInfo, samplerInfo, vk::ImageLayout::eTransferDstOptimal);
     m_fontTexture->setPixels(pixels, uploadSize);
     m_fontTexture->transferToLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
@@ -115,48 +108,47 @@ void guiRenderer::resetFontTexture()
     auto semaphore = Engine::getRenderSystem()->getDeviceHandle()->requestSemaphore();
     {
         m_fontTexture->resetOwnerQueue(Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer));
-        ScopedCommandBuffer cmdBuffer1{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer)};
-        cmdBuffer1.getCommandBufferHandle()->insertImageBarrier(m_fontTexture,
-                                                                vk::PipelineStageFlagBits2::eTransfer, vk::PipelineStageFlagBits2::eNone,
-                                                                vk::AccessFlagBits2::eMemoryWrite, vk::AccessFlagBits2::eNone,
-                                                                vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined,
-                                                                vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS},
-                                                                Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
-        cmdBuffer1.getCommandBufferHandle()->executeBarriers();
-        cmdBuffer1.getCommandBufferHandle()->getPoolFrom()->appendSubmitSignalSemaphores({*semaphore});
+        ScopedCommandBuffer cmd1{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer)};
+        cmd1.getCommandBufferHandle()->insertImageBarrier(m_fontTexture,
+                                                          vk::PipelineStageFlagBits2::eTransfer, vk::PipelineStageFlagBits2::eNone,
+                                                          vk::AccessFlagBits2::eMemoryWrite, vk::AccessFlagBits2::eNone,
+                                                          vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined,
+                                                          vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS},
+                                                          Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
+        cmd1.getCommandBufferHandle()->executeBarriers();
+        cmd1.getCommandBufferHandle()->getPoolFrom()->appendSubmitSignalSemaphores({*semaphore});
     }
     {
-        m_fontTexture->resetOwnerQueue(Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer));
-        ScopedCommandBuffer cmdBuffer2{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics)};
-        cmdBuffer2.getCommandBufferHandle()->insertImageBarrier(m_fontTexture,
-                                                                vk::PipelineStageFlagBits2::eNone, vk::PipelineStageFlagBits2::eTransfer,
-                                                                vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eMemoryRead,
-                                                                vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined,
-                                                                vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS},
-                                                                Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
-        cmdBuffer2.getCommandBufferHandle()->executeBarriers();
-        cmdBuffer2.getCommandBufferHandle()->getPoolFrom()->appendSubmitWaitInfos({*semaphore}, {vk::PipelineStageFlagBits::eTransfer});
+        ScopedCommandBuffer cmd2{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics)};
+        cmd2.getCommandBufferHandle()->insertImageBarrier(m_fontTexture,
+                                                          vk::PipelineStageFlagBits2::eNone, vk::PipelineStageFlagBits2::eTransfer,
+                                                          vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eMemoryRead,
+                                                          vk::ImageLayout::eUndefined, vk::ImageLayout::eUndefined,
+                                                          vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS},
+                                                          Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
+        cmd2.getCommandBufferHandle()->executeBarriers();
+        cmd2.getCommandBufferHandle()->getPoolFrom()->appendSubmitWaitInfos({*semaphore}, {vk::PipelineStageFlagBits::eTransfer});
     }
     Engine::getRenderSystem()->getDeviceHandle()->recycleResources(semaphore);
 }
 
-void guiRenderer::render()
+void guiRenderer::resetRenderPass(std::shared_ptr<GraphicsPass> pass, uint32_t subpassIndex)
 {
-    auto frame = Engine::getRenderSystem()->getCurrentFrame();
-    ImGui::Render();
+    m_psoTemplate->bindRenderPass(pass);
+    m_pipeline = std::make_shared<GraphicsPipelineStateObject>(m_psoTemplate, subpassIndex);
+    m_pipeline->pushDescriptorUpdate("sTexture", m_fontTexture->getDescriptorInfo());
+    {
+        ScopedCommandBuffer cmd{Engine::getRenderSystem()->getDeviceHandle(), Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer)};
+        m_pipeline->updateDescriptorSet(*cmd.getCommandBufferHandle());
+    }
+}
 
+void guiRenderer::updateBuffers(std::shared_ptr<CommandBuffer> cmd)
+{
     auto &io = ImGui::GetIO();
     auto drawData = ImGui::GetDrawData();
-
-    auto renderWidth = static_cast<uint32_t>(drawData->DisplaySize.x * drawData->FramebufferScale.x);
-    auto renderHeight = static_cast<uint32_t>(drawData->DisplaySize.y * drawData->FramebufferScale.y);
-
     auto frameIndex = Engine::getRenderSystem()->getPresentedFrameCount() % Engine::getRenderSystem()->getParallelFrameCount();
     auto device = Engine::getRenderSystem()->getDeviceHandle();
-    auto cmdBuffer = frame->requestCommandBuffer(vk::QueueFlagBits::eGraphics);
-    cmdBuffer->begin();
-    cmdBuffer->bindPipeline(m_pipeline);
-    cmdBuffer->bindFrameBuffer(frame->getMainFrameBuffer());
     if (drawData->TotalVtxCount > 0)
     {
         const auto vertexSize = drawData->TotalVtxCount * sizeof(ImDrawVert);
@@ -196,56 +188,52 @@ void guiRenderer::render()
             std::copy(cmd->IdxBuffer.Data, cmd->IdxBuffer.Data + cmd->IdxBuffer.Size, std::back_inserter(indexData));
         }
 
-        // auto asyncTransferCmd = frame->requestCommandBuffer(vk::QueueFlagBits::eTransfer);
-        // asyncTransferCmd->begin();
-        // asyncTransferCmd->uploadData(m_vertexBuffers[frameIndex], vertexData.data(), vertexData.size());
-        // asyncTransferCmd->uploadData(m_indexBuffers[frameIndex], indexData.data(), indexData.size());
-        // asyncTransferCmd->insertBufferBarrier(m_vertexBuffers[frameIndex],
-        //                                       vk::PipelineStageFlagBits2::eTransfer, vk::PipelineStageFlagBits2::eNone,
-        //                                       vk::AccessFlagBits2::eMemoryWrite, vk::AccessFlagBits2::eNone,
-        //                                       Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
-        // asyncTransferCmd->insertBufferBarrier(m_indexBuffers[frameIndex],
-        //                                       vk::PipelineStageFlagBits2::eTransfer, vk::PipelineStageFlagBits2::eNone,
-        //                                       vk::AccessFlagBits2::eMemoryWrite, vk::AccessFlagBits2::eNone,
-        //                                       Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
-        // asyncTransferCmd->executeBarriers();
-        // asyncTransferCmd->endWithSubmit({m_transferCompleteSemaphores[frameIndex]});
+        // I do not know how the sync issue happened, but due to debug it can be solved by 2 memory barriers
+        // still kind of weird...
+        cmd->insertBufferBarrier(m_vertexBuffers[frameIndex],
+                                 vk::PipelineStageFlagBits2::eBottomOfPipe | vk::PipelineStageFlagBits2::eCopy, vk::PipelineStageFlagBits2::eCopy,
+                                 vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eTransferWrite);
+        cmd->insertBufferBarrier(m_indexBuffers[frameIndex],
+                                 vk::PipelineStageFlagBits2::eBottomOfPipe | vk::PipelineStageFlagBits2::eCopy, vk::PipelineStageFlagBits2::eCopy,
+                                 vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eTransferWrite);
+        cmd->executeBarriers();
+        cmd->uploadData(m_vertexBuffers[frameIndex], vertexData.data(), vertexSize);
+        cmd->uploadData(m_indexBuffers[frameIndex], indexData.data(), indexSize);
+        cmd->insertBufferBarrier(m_vertexBuffers[frameIndex],
+                                 vk::PipelineStageFlagBits2::eCopy, vk::PipelineStageFlagBits2::eVertexAttributeInput,
+                                 vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eMemoryRead);
+        cmd->insertBufferBarrier(m_indexBuffers[frameIndex],
+                                 vk::PipelineStageFlagBits2::eCopy, vk::PipelineStageFlagBits2::eIndexInput,
+                                 vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eMemoryRead);
+        cmd->executeBarriers();
+    }
+}
 
-        // m_vertexBuffers[frameIndex].getBasedBufferHandle()->resetOwnerQueue(Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer));
-        // m_indexBuffers[frameIndex].getBasedBufferHandle()->resetOwnerQueue(Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eTransfer));
-        // cmdBuffer->insertBufferBarrier(m_vertexBuffers[frameIndex],
-        //                                vk::PipelineStageFlagBits2::eNone, vk::PipelineStageFlagBits2::eVertexInput,
-        //                                vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eVertexAttributeRead,
-        //                                Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
-        // cmdBuffer->insertBufferBarrier(m_indexBuffers[frameIndex],
-        //                                vk::PipelineStageFlagBits2::eNone, vk::PipelineStageFlagBits2::eVertexInput,
-        //                                vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eIndexRead,
-        //                                Engine::getRenderSystem()->getQueueInstanceHandle(vk::QueueFlagBits::eGraphics));
+void guiRenderer::render(std::shared_ptr<CommandBuffer> cmd)
+{
+    auto &io = ImGui::GetIO();
+    auto drawData = ImGui::GetDrawData();
 
-        cmdBuffer->uploadData(m_vertexBuffers[frameIndex], vertexData.data(), vertexSize);
-        cmdBuffer->uploadData(m_indexBuffers[frameIndex], indexData.data(), indexSize);
-        cmdBuffer->insertBufferBarrier(m_vertexBuffers[frameIndex],
-                                       vk::PipelineStageFlagBits2::eCopy, vk::PipelineStageFlagBits2::eVertexAttributeInput,
-                                       vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eMemoryRead);
-        cmdBuffer->insertBufferBarrier(m_indexBuffers[frameIndex],
-                                       vk::PipelineStageFlagBits2::eCopy, vk::PipelineStageFlagBits2::eIndexInput,
-                                       vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eMemoryRead);
-        cmdBuffer->executeBarriers();
+    auto renderWidth = static_cast<uint32_t>(drawData->DisplaySize.x * drawData->FramebufferScale.x);
+    auto renderHeight = static_cast<uint32_t>(drawData->DisplaySize.y * drawData->FramebufferScale.y);
 
+    auto frameIndex = Engine::getRenderSystem()->getPresentedFrameCount() % Engine::getRenderSystem()->getParallelFrameCount();
+    if (drawData->TotalVtxCount > 0)
+    {
         // Setup desired Vulkan state
-        cmdBuffer->bindVertexBuffers(0, {m_vertexBuffers[frameIndex]});
-        cmdBuffer->bindIndexBuffer(m_indexBuffers[frameIndex], sizeof(ImDrawIdx) == 2 ? vk::IndexType::eUint16 : vk::IndexType::eUint32);
+        cmd->bindPipeline(m_pipeline);
+        cmd->bindVertexBuffers(0, {m_vertexBuffers[frameIndex]});
+        cmd->bindIndexBuffer(m_indexBuffers[frameIndex], sizeof(ImDrawIdx) == 2 ? vk::IndexType::eUint16 : vk::IndexType::eUint32);
 
         // begin rendering
-        cmdBuffer->beginRenderPass(vk::Rect2D{{}, {renderWidth, renderHeight}}, {vk::ClearValue{{.0f, .0f, .0f, 1.f}}});
-        cmdBuffer->setViewport(0, vk::Viewport{0, 0, static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0, 1.f});
+        cmd->setViewport(0, vk::Viewport{0, 0, static_cast<float>(renderWidth), static_cast<float>(renderHeight), 0, 1.f});
         {
             glm::vec2 scale = {2.f / drawData->DisplaySize.x, 2.f / drawData->DisplaySize.y};
             glm::vec2 translate = {-1.f - drawData->DisplayPos.x * scale.x, -1.f - drawData->DisplayPos.y * scale.y};
             m_pipeline->assignPushConstantField(vk::ShaderStageFlagBits::eVertex, "uScale", scale);
             m_pipeline->assignPushConstantField(vk::ShaderStageFlagBits::eVertex, "uTranslate", translate);
         }
-        cmdBuffer->uploadPushConstant();
+        cmd->uploadPushConstant();
 
         // Will project scissor/clipping rectangles into framebuffer space
         auto clipOffset = drawData->DisplayPos;      // (0,0) unless using multi-viewports
@@ -256,11 +244,11 @@ void guiRenderer::render()
         auto vertexOffset = 0U, indexOffset = 0U;
         for (const auto cmdList : drawData->CmdLists)
         {
-            for (const auto imGuiCmdBuffer : cmdList->CmdBuffer)
+            for (const auto imGuicmd : cmdList->CmdBuffer)
             {
-                if (imGuiCmdBuffer.UserCallback != nullptr)
+                if (imGuicmd.UserCallback != nullptr)
                 {
-                    if (imGuiCmdBuffer.UserCallback == ImDrawCallback_ResetRenderState)
+                    if (imGuicmd.UserCallback == ImDrawCallback_ResetRenderState)
                     {
                         // since pipeline, vertex & index buffers, viewport are all constants for now
                         // we only reset push constants
@@ -270,16 +258,16 @@ void guiRenderer::render()
                             m_pipeline->assignPushConstantField(vk::ShaderStageFlagBits::eVertex, "uScale", scale);
                             m_pipeline->assignPushConstantField(vk::ShaderStageFlagBits::eVertex, "uTranslate", translate);
                         }
-                        cmdBuffer->uploadPushConstant();
+                        cmd->uploadPushConstant();
                     }
                     else
-                        imGuiCmdBuffer.UserCallback(cmdList, &imGuiCmdBuffer);
+                        imGuicmd.UserCallback(cmdList, &imGuicmd);
                 }
                 else
                 {
                     // Project scissor/clipping rectangles into framebuffer space
-                    glm::uvec2 clipMin{(imGuiCmdBuffer.ClipRect.x - clipOffset.x) * clipScale.x, (imGuiCmdBuffer.ClipRect.y - clipOffset.y) * clipScale.y};
-                    glm::uvec2 clipMax{(imGuiCmdBuffer.ClipRect.z - clipOffset.x) * clipScale.x, (imGuiCmdBuffer.ClipRect.w - clipOffset.y) * clipScale.y};
+                    glm::uvec2 clipMin{(imGuicmd.ClipRect.x - clipOffset.x) * clipScale.x, (imGuicmd.ClipRect.y - clipOffset.y) * clipScale.y};
+                    glm::uvec2 clipMax{(imGuicmd.ClipRect.z - clipOffset.x) * clipScale.x, (imGuicmd.ClipRect.w - clipOffset.y) * clipScale.y};
 
                     // Clamp to viewport as vkCmdSetScissor() won't accept values that are off bounds
                     clipMin = glm::max(clipMin, glm::uvec2{});
@@ -288,46 +276,25 @@ void guiRenderer::render()
                         continue;
 
                     // Apply scissor/clipping rectangle
-                    cmdBuffer->setScissor(0, vk::Rect2D{{static_cast<int32_t>(clipMin.x), static_cast<int32_t>(clipMin.y)},
-                                                        {clipMax.x - clipMin.x, clipMax.y - clipMin.y}});
+                    cmd->setScissor(0, vk::Rect2D{{static_cast<int32_t>(clipMin.x), static_cast<int32_t>(clipMin.y)},
+                                                  {clipMax.x - clipMin.x, clipMax.y - clipMin.y}});
 
                     // Bind DescriptorSet with font or user texture
                     // use io.Fonts.TexID as a coder of currently used texture ID
-                    if (sizeof(ImTextureID) == sizeof(ImU64) && imGuiCmdBuffer.TextureId != io.Fonts->TexID)
+                    if (sizeof(ImTextureID) == sizeof(ImU64) && imGuicmd.TextureId != io.Fonts->TexID)
                     {
-                        auto texturePtr = static_cast<Texture *>(imGuiCmdBuffer.TextureId);
+                        auto texturePtr = static_cast<Texture *>(imGuicmd.TextureId);
                         m_pipeline->pushDescriptorUpdate("sTexture", texturePtr->getDescriptorInfo());
-                        io.Fonts->TexID = imGuiCmdBuffer.TextureId;
+                        io.Fonts->TexID = imGuicmd.TextureId;
                     }
-                    cmdBuffer->updateDescriptorSet();
+                    cmd->updateDescriptorSet();
 
-                    cmdBuffer->drawIndexed(imGuiCmdBuffer.ElemCount, 1, indexOffset + imGuiCmdBuffer.IdxOffset, vertexOffset + imGuiCmdBuffer.VtxOffset, 0);
+                    cmd->drawIndexed(imGuicmd.ElemCount, 1, indexOffset + imGuicmd.IdxOffset, vertexOffset + imGuicmd.VtxOffset, 0);
                 }
             }
 
             vertexOffset += cmdList->VtxBuffer.Size;
             indexOffset += cmdList->IdxBuffer.Size;
         }
-        cmdBuffer->endRenderPass();
     }
-    else
-    {
-        cmdBuffer->beginRenderPass(vk::Rect2D{{}, {renderWidth, renderHeight}}, {vk::ClearValue{{.0f, .0f, .0f, 1.f}}});
-        cmdBuffer->endRenderPass();
-    }
-
-    // // Note: at this point both vkCmdSetViewport() and vkCmdSetScissor() have been called.
-    // // Our last values will leak into user/application rendering IF:
-    // // - Your app uses a pipeline with VK_DYNAMIC_STATE_VIEWPORT or VK_DYNAMIC_STATE_SCISSOR dynamic state
-    // // - And you forgot to call vkCmdSetViewport() and vkCmdSetScissor() yourself to explicitly set that state.
-    // // If you use VK_DYNAMIC_STATE_VIEWPORT or VK_DYNAMIC_STATE_SCISSOR you are responsible for setting the values before rendering.
-    // // In theory we should aim to backup/restore those values but I am not sure this is possible.
-    // // We perform a call to vkCmdSetScissor() to set back a full viewport which is likely to fix things for 99% users but technically this is not perfect. (See github #4644)
-    // cmdBuffer->setScissor(0, vk::Rect2D{{}, {renderWidth, renderHeight}});
-
-    // cmdBuffer->endRenderPass();
-
-    cmdBuffer->end();
-    // if (drawData->TotalVtxCount > 0)
-    //     cmdBuffer->getPoolFrom()->appendSubmitWaitInfos({*m_transferCompleteSemaphores[frameIndex]}, {vk::PipelineStageFlagBits::eTransfer});
 }

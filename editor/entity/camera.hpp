@@ -70,7 +70,7 @@ protected:
     // Do panning: movement parallels to the screen
     void pan(float dx, float dy)
     {
-        if (m_mode == CAMERA_ACTION_MODE_FLY)
+        if (m_mode == eCameraActionMode::CAMERA_ACTION_MODE_FLY)
         {
             dx *= -1, dy *= -1;
         }
@@ -151,14 +151,14 @@ protected:
 
         // Use the larger movement.
         float dd;
-        if (m_mode == CAMERA_ACTION_MODE_FLY)
+        if (m_mode == eCameraActionMode::CAMERA_ACTION_MODE_FLY)
             dd = -dy;
         else
             dd = fabs(dx) > fabs(dy) ? dx : -dy;
         float factor = m_speed * dd;
 
         // Adjust speed based on distance.
-        if (m_mode == CAMERA_ACTION_MODE_FOCUS_ON_OBJECT)
+        if (m_mode == eCameraActionMode::CAMERA_ACTION_MODE_FOCUS_ON_OBJECT)
         {
             // Don't move over the point of interest.
             if (factor >= 1.0f)
@@ -173,7 +173,7 @@ protected:
         m_eye += z;
 
         // In fly mode, the interest moves with us.
-        if (m_mode == CAMERA_ACTION_MODE_FLY)
+        if (m_mode == eCameraActionMode::CAMERA_ACTION_MODE_FLY)
             m_target += z;
     }
 
@@ -426,7 +426,7 @@ protected:
     glm::vec3 m_target{0, 0, 0};
     glm::vec3 m_up{0, 1, 0};
     glm::vec2 m_clipPlanes{0.001f, 100000000.f};
-    eCameraProjectionType m_type{CAMERA_PROJECTION_TYPE_PERSPECTIVE};
+    eCameraProjectionType m_type{eCameraProjectionType::CAMERA_PROJECTION_TYPE_PERSPECTIVE};
     float m_fov{60.0f};
 
     glm::mat4 m_viewMatrix = glm::mat4(1);
@@ -458,5 +458,5 @@ protected:
     bool m_moving = false; // Mouse is moving
     float m_tbsize = 0.8f; // Trackball size;
 
-    eCameraActionMode m_mode{CAMERA_ACTION_MODE_FLY};
+    eCameraActionMode m_mode{eCameraActionMode::CAMERA_ACTION_MODE_FLY};
 };

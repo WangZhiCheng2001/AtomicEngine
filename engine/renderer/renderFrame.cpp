@@ -3,7 +3,7 @@
 #include "renderFrame.hpp"
 
 RenderFrame::RenderFrame(std::shared_ptr<Device> device, std::shared_ptr<Texture> mainRT)
-    : m_deviceHandle(device), m_mainRenderTarget(mainRT)
+    : m_deviceHandle(device), m_mainFrameBufferInfo({{mainRT}})
 {
     // preallocate needed command pools
     // maybe need to handle no-separate/non-async queue handle here?
@@ -20,18 +20,16 @@ RenderFrame::RenderFrame(std::shared_ptr<Device> device, std::shared_ptr<Texture
 
     if (!s_presentRenderPass)
     {
-        std::vector<AttachmentInfo> attaches{{m_mainRenderTarget->getFormat(), vk::SampleCountFlagBits::e1, vk::ImageLayout::eUndefined, vk::ImageLayout::ePresentSrcKHR}};
+        std::vector<AttachmentInfo> attaches{{mainRT->getFormat(), vk::SampleCountFlagBits::e1, vk::ImageLayout::eUndefined, vk::ImageLayout::ePresentSrcKHR}};
         std::vector<AttachmentLoadStoreInfo> lsInfos{{vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eStore}};
         std::vector<GraphicsRenderSubpassInfo> subpass{{{}, {0}, {}, false}};
-        s_presentRenderPass = std::make_shared<GraphicsRenderPassInfo>(m_deviceHandle, attaches, lsInfos, subpass);
+        s_presentRenderPass = m_deviceHandle->requestRenderPass(attaches, lsInfos, subpass);
     }
-    m_mainFrameBuffer = std::make_shared<GraphicsFrameBuffer>(s_presentRenderPass, std::vector{m_mainRenderTarget});
 }
 
 RenderFrame::~RenderFrame()
 {
     reset();
-    m_mainRenderTarget.reset();
 }
 
 std::shared_ptr<CommandBuffer> RenderFrame::requestCommandBuffer(vk::QueueFlagBits queueType,
@@ -59,11 +57,7 @@ void RenderFrame::reset()
 
 void RenderFrame::resetMainRenderTarget(std::shared_ptr<Texture> rt)
 {
-    m_mainFrameBuffer.reset();
-    m_mainRenderTarget.reset();
-
-    m_mainRenderTarget = std::move(rt);
-    m_mainFrameBuffer = std::make_shared<GraphicsFrameBuffer>(s_presentRenderPass, std::vector{m_mainRenderTarget});
+    m_mainFrameBufferInfo = FrameBufferInfo{{rt}};
 }
 
 // for presenting, the last stage has to be color attach output or transfer output (blit/copy)
@@ -77,9 +71,9 @@ void RenderFrame::execute(std::shared_ptr<vk::Semaphore> imageAcquireSemaphore,
     {
         for (auto &[resetMode, pool] : pools)
         {
-            if(pool->hasSubmit())
+            if (pool->hasSubmit())
             {
-                if(imageAcquireSemaphore)
+                if (imageAcquireSemaphore)
                     pool->appendSubmitWaitInfos({*imageAcquireSemaphore}, {s_presentWaitStage[0]});
                 pool->appendSubmitSignalSemaphores({*renderCompleteSemaphores[index]});
                 pool->batchSubmit(false, finishFences[index]);

@@ -1,6 +1,6 @@
 target("Engine")
     set_kind("static")
-    add_files("./*/*.cpp")
+    add_files("./**.cpp")
     add_includedirs("./", "./core", "./asset", "./entity", "./gui", "./platform", "./renderer", "./RHI", "./utils", {public = true})
     add_deps("BuiltinResources")
-    add_packages("vulkansdk", "spirv-cross", "shaderc", "imgui", "spdlog", "glm", "freeimage", "stb")
+    add_packages("vulkansdk", "spirv-cross", "shaderc", "imgui", "spdlog", "glm", "freeimage", "fast_obj", "tinyxml2")

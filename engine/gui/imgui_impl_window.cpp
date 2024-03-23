@@ -56,6 +56,7 @@ guiWindow::guiWindow(std::shared_ptr<Window> window) : m_windowHandle(window)
     io.BackendFlags |=
         ImGuiBackendFlags_HasSetMousePos; // We can honor io.WantSetMousePos
                                           // requests (optional, rarely used)
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     // Set platform dependent data in viewport
     // Our mouse update function expect PlatformHandle to be filled for the main

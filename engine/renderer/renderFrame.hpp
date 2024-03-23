@@ -3,7 +3,7 @@
 #include <deviceHelper.hpp>
 #include <commandHelper.hpp>
 #include <dataTransferHelper.hpp>
-#include <texture.hpp>
+#include <resource/texture.hpp>
 
 // forward declare
 class RenderSystem;
@@ -67,12 +67,11 @@ public:
     void reset();
 
     void resetMainRenderTarget(std::shared_ptr<Texture> rt);
-    auto getMainRenderTarget() const { return m_mainRenderTarget; }
-    auto getMainFrameBuffer() const { return m_mainFrameBuffer; }
+    auto getMainFrameBufferInfo() const { return m_mainFrameBufferInfo; }
 
     friend class RenderSystem;
 
-    static std::shared_ptr<GraphicsRenderPassInfo> s_presentRenderPass;
+    static std::shared_ptr<GraphicsPass> s_presentRenderPass;
 
 protected:
     void execute(std::shared_ptr<vk::Semaphore> imageAcquireSemaphore,
@@ -85,8 +84,7 @@ protected:
     std::unordered_map<QueueInstance, std::unordered_map<eCommandResetMode, std::shared_ptr<CommandPool>, Aligned32Hasher<eCommandResetMode>>> m_commandPools{};
 
     // will be used for final bliting & presenting
-    std::shared_ptr<Texture> m_mainRenderTarget{};
-    std::shared_ptr<GraphicsFrameBuffer> m_mainFrameBuffer{};
+    FrameBufferInfo m_mainFrameBufferInfo;
 
     // for external sync
     std::vector<uint8_t> m_submittedPoolIndices{};

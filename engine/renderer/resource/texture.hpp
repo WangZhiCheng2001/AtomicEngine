@@ -40,6 +40,8 @@ public:
 
         // only resets mip level 0 and first array layer
         void setPixels(void *data, size_t size);
+        // CAUTION: this only resets cached layout, but not actually executes memory barriers to translate layout
+        void resetLayout(vk::ImageLayout dstLayout) { m_currentLayout = dstLayout; }
         void transferToLayout(vk::ImageLayout dstLayout);
 
 protected:

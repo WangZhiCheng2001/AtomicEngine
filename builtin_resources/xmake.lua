@@ -1,7 +1,7 @@
 target("ShaderBuilder")
     set_kind("object")
     add_rules("utils.glsl2spv", {bin2c = true, outputdir = "builtin_resources/shaders/compiled"})
-    add_files("./shaders/*.vert", "./shaders/*.frag")
+    add_files("./shaders/**.vert", "./shaders/**.frag", "./shaders/**.comp")
 target_end()
 
 target("BuiltinResources")

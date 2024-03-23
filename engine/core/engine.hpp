@@ -3,6 +3,10 @@
 #include <memory>
 
 #include "logSystem.hpp"
+#include <assetManager.hpp>
+#include <importer/textureImporter.hpp>
+#include <importer/modelImporter.hpp>
+#include <importer/metaImporter.hpp>
 #include <renderSystem.hpp>
 #include <messageHandler.hpp>
 #include <window_sdl.hpp>
@@ -27,20 +31,21 @@ public:
 
     static bool shouldClose() noexcept { return m_shouldCloseWindow; }
     static void closeWindow() noexcept { m_shouldCloseWindow = true; }
-    static void newFrame();
-    static bool shouldRender() noexcept { return !m_mainWindow || !m_mainWindow->isMinimized(); }
-    static void beginRender();
-    static void internalRender();
-    static void endRender();
+
+    static void resize(const std::pair<uint32_t, uint32_t> &size);
 
     static inline auto getLogSystem() noexcept { return LogSystem::getInstance(); }
+    static inline auto getAssetManager() noexcept { return m_assetManager; }
     static inline auto getRenderSystem() noexcept { return m_renderSystem; }
     static inline auto getMainWindow() noexcept { return m_mainWindow; }
     static inline auto getMessageHandler() noexcept { return m_messageHandler; }
+    static inline auto getGuiBaseWindow() noexcept { return m_imguiWindowHandle; }
+    static inline auto getGuiRenderer() noexcept { return m_imguiRendererHandle; }
 
 protected:
     Engine();
 
+    static std::shared_ptr<AssetManager> m_assetManager;
     static std::shared_ptr<RenderSystem> m_renderSystem;
 
     static bool m_shouldCloseWindow;

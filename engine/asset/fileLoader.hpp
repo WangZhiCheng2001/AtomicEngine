@@ -1,11 +1,13 @@
 #pragma once
 /* simply copied from nvpro_cores/nvh */
+// TODO: needs a totally rewrite of this file
 
 #include <string>
 #include <vector>
 #include <fstream>
+#include <filesystem>
 
-#include <spdlog/spdlog.h>
+#include <log.hpp>
 
 static inline std::string findFile(const std::string &infilename, const std::vector<std::string> &directories, bool warn = false)
 {
@@ -15,7 +17,7 @@ static inline std::string findFile(const std::string &infilename, const std::vec
         stream.open(infilename.c_str());
         if (stream.is_open())
         {
-            spdlog::info("Found file {}.", infilename);
+            ENGINE_LOG_INFO("Found file {}.", infilename);
             return infilename;
         }
     }
@@ -26,7 +28,7 @@ static inline std::string findFile(const std::string &infilename, const std::vec
         stream.open(filename.c_str());
         if (stream.is_open())
         {
-            spdlog::info("Found file {}.", filename);
+            ENGINE_LOG_INFO("Found file {}.", filename);
             return filename;
         }
     }
@@ -36,7 +38,7 @@ static inline std::string findFile(const std::string &infilename, const std::vec
         std::string all_directories{};
         for (const auto &directory : directories)
             all_directories += directory + " - ";
-        spdlog::warn("File {} not found in directories {}.", infilename, all_directories);
+        ENGINE_LOG_WARN("File {} not found in directories {}.", infilename, all_directories);
     }
 
     return {};

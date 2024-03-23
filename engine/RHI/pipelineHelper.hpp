@@ -243,13 +243,13 @@ public:
     {
         m_pass = m_deviceHandle->requestRenderPass(attachments, lsInfos, subpassInfos);
     }
-    void bindRenderPass(std::shared_ptr<GraphicsRenderPassInfo> pass) { m_pass = pass; }
+    void bindRenderPass(std::shared_ptr<GraphicsPass> pass) { m_pass = pass; }
     auto getRenderPassHandle() const { return m_pass; }
 
     friend class GraphicsPipelineStateObject;
 
 protected:
-    std::shared_ptr<GraphicsRenderPassInfo> m_pass{};
+    std::shared_ptr<GraphicsPass> m_pass{};
     GraphicsPipelineState m_graphicsState{};
 };
 
@@ -305,6 +305,7 @@ public:
     void updateDescriptorSet(vk::CommandBuffer &cmd);
 
     auto getPipelineHandle() const { return std::make_shared<vk::Pipeline>(m_pipeline); }
+    auto getBaseTemplate() const { return m_template; }
     operator vk::Pipeline() const { return m_pipeline; }
 
 protected:
@@ -379,7 +380,7 @@ public:
     auto getRenderpassHandle() const { return m_pass; }
 
 protected:
-    std::shared_ptr<GraphicsRenderPassInfo> m_pass{};
+    std::shared_ptr<GraphicsPass> m_pass{};
     uint64_t m_enabledDynamicState{0ULL};
 };
 

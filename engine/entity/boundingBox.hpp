@@ -28,6 +28,6 @@ struct BoundingBox
         maxPoint = glm::max(maxPoint, box.maxPoint);
     }
 
-    glm::vec3 minPoint{glm::zero<glm::vec3>()};
-    glm::vec3 maxPoint{glm::zero<glm::vec3>()};
+    glm::vec3 minPoint{0};
+    glm::vec3 maxPoint{0};
 };

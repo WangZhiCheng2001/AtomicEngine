@@ -37,6 +37,7 @@ public:
     size_t getParallelFrameCount() const { return m_frames.size(); }
 
     friend class MessageHandler;
+    friend class Engine;
 
 protected:
     std::shared_ptr<vk::Instance> m_instanceHandle{};

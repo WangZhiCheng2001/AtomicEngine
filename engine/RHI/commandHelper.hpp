@@ -87,12 +87,11 @@ public:
     void beginRenderPass(vk::Rect2D renderArea,
                          const std::vector<vk::ClearValue> &clearValues = {},
                          vk::SubpassContents subpassType = vk::SubpassContents::eInline);
-    void nextSubPass();
+    void nextSubpass();
     void executeCommands(const std::vector<std::shared_ptr<CommandBuffer>> &secondaries);
     void endRenderPass();
 
-    void bindFrameBuffer(const std::vector<std::shared_ptr<Texture>> &buffers);
-    void bindFrameBuffer(std::shared_ptr<GraphicsFrameBuffer> framebuffer);
+    void bindFrameBuffer(const FrameBufferInfo &info);
     void bindVertexBuffers(uint32_t firstBinding, const std::vector<LinkedBlockSuballocationHandle> &buffers);
     void bindIndexBuffer(const LinkedBlockSuballocationHandle &buffer, vk::IndexType type = vk::IndexType::eUint16);
 
@@ -136,7 +135,8 @@ protected:
 
     vk::PipelineBindPoint m_psoType{};
     std::shared_ptr<PipelineStateObjectBase> m_boundPSO{};
-    std::shared_ptr<GraphicsFrameBuffer> m_boundFrameBuffer{};
+    std::vector<std::shared_ptr<Texture>> m_attachments{};
+    std::shared_ptr<FrameBuffer> m_boundFrameBuffer{};
     vk::SubpassContents m_subpassContents{};
     uint32_t m_subpassIndex{};
 

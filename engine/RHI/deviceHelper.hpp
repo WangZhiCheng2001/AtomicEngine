@@ -23,7 +23,9 @@ struct ShaderModule;
 struct AttachmentInfo;
 struct AttachmentLoadStoreInfo;
 struct GraphicsRenderSubpassInfo;
-struct GraphicsRenderPassInfo;
+struct GraphicsPass;
+struct FrameBufferInfo;
+struct FrameBuffer;
 struct GraphicsPSOTemplate;
 struct ComputePSOTemplate;
 struct Sampler;
@@ -88,9 +90,11 @@ public:
                                                       const ShaderVariantInfo &variant);
     std::shared_ptr<GraphicsPSOTemplate> requestGraphicsPSOTemplate(const std::vector<std::shared_ptr<ShaderModule>> &shaders);
     std::shared_ptr<ComputePSOTemplate> requestComputePSOTemplate(std::shared_ptr<ShaderModule> shader);
-    std::shared_ptr<GraphicsRenderPassInfo> requestRenderPass(const std::vector<AttachmentInfo> &attachments,
-                                                              const std::vector<AttachmentLoadStoreInfo> &lsInfos,
-                                                              const std::vector<GraphicsRenderSubpassInfo> &subpassInfos);
+    std::shared_ptr<GraphicsPass> requestRenderPass(const std::vector<AttachmentInfo> &attachments,
+                                                    const std::vector<AttachmentLoadStoreInfo> &lsInfos,
+                                                    const std::vector<GraphicsRenderSubpassInfo> &subpassInfos);
+    std::shared_ptr<FrameBuffer> requestFrameBuffer(std::shared_ptr<GraphicsPass> renderpass,
+                                                    const FrameBufferInfo &info);
     std::shared_ptr<Sampler> requestSampler(const vk::SamplerCreateInfo &info);
     std::shared_ptr<vk::Fence> requestFence(bool signaled = false);
     std::shared_ptr<vk::Semaphore> requestSemaphore();

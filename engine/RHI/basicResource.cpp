@@ -7,8 +7,12 @@
 Buffer::Buffer(std::shared_ptr<Device> device_,
                const vk::BufferCreateInfo &info,
                vk::MemoryPropertyFlags flag)
-    : m_deviceHandle(device_), m_memAllocator(device_->getMemoryAllocatorHandle()), m_info(info), m_memUsage(flag)
+    : m_info(info)
 {
+    m_deviceHandle = device_;
+    m_memAllocator = device_->getMemoryAllocatorHandle();
+    m_memUsage = flag;
+
     m_buffer = std::static_pointer_cast<vk::Device>(m_deviceHandle)->createBuffer(info, allocationCallbacks);
 
     // Find memory requirements
@@ -108,8 +112,12 @@ vk::DeviceAddress Buffer::getDeviceAddress() const
 Image::Image(std::shared_ptr<Device> device_,
              const vk::ImageCreateInfo &info,
              vk::MemoryPropertyFlags flag)
-    : m_deviceHandle(device_), m_memAllocator(device_->getMemoryAllocatorHandle()), m_info(info), m_memUsage(flag), m_fromExternal(false)
+    : m_info(info), m_fromExternal(false)
 {
+    m_deviceHandle = device_;
+    m_memAllocator = device_->getMemoryAllocatorHandle();
+    m_memUsage = flag;
+
     m_image = std::static_pointer_cast<vk::Device>(m_deviceHandle)->createImage(info, allocationCallbacks);
 
     // Find memory requirements
@@ -144,8 +152,9 @@ Image::Image(std::shared_ptr<Device> device_,
 }
 
 Image::Image(std::shared_ptr<Device> device_, vk::Image image_, const vk::ImageCreateInfo &info)
-    : m_deviceHandle(device_), m_image(image_), m_info(info), m_fromExternal(true)
+    : m_image(image_), m_info(info), m_fromExternal(true)
 {
+    m_deviceHandle = device_;
 }
 
 Image::~Image()

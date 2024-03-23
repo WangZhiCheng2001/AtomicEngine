@@ -1,5 +1,5 @@
 #include <log.hpp>
-#include <texture.hpp>
+#include <resource/texture.hpp>
 
 #include "basicResource.hpp"
 #include "dataTransferHelper.hpp"
@@ -9,6 +9,7 @@
 #include "shaderHelper.hpp"
 #include "renderInfoHelper.hpp"
 #include "sampler.hpp"
+#include "deviceHelper.hpp"
 
 template <typename T>
 consteval std::string_view resourceTypeToNameStr()
@@ -21,8 +22,10 @@ consteval std::string_view resourceTypeToNameStr()
         return "graphics_pso_template";
     if constexpr (std::is_same_v<T, ComputePSOTemplate>)
         return "compute_pso_template";
-    if constexpr (std::is_same_v<T, GraphicsRenderPassInfo>)
+    if constexpr (std::is_same_v<T, GraphicsPass>)
         return "render_pass";
+    if constexpr (std::is_same_v<T, FrameBuffer>)
+        return "frame_buffer";
     if constexpr (std::is_same_v<T, Sampler>)
         return "sampler";
     if constexpr (std::is_same_v<T, vk::Fence>)
@@ -41,6 +44,8 @@ consteval uint8_t resourceReleaseLatency(std::string_view name)
         return 8;
     if (name == "render_pass")
         return 4;
+    if (name == "frame_buffer")
+        return 6;
     if (name == "sampler")
         return 4;
     return 0;
@@ -89,7 +94,7 @@ inline void tickReleaseResource(std::shared_ptr<Device> device,
     {
         auto ptr = std::any_cast<std::shared_ptr<T>>(objIter.second);
         auto latencyIter = latencyMap.find(objIter.first);
-        if (ptr.use_count() == 2)
+        if (ptr.use_count() <= 2)
         {
             if (latencyIter != latencyMap.end())
                 latencyIter->second--;
@@ -128,7 +133,8 @@ Device::Device(VkDevice device)
     m_resourceMutexMap.insert({resourceTypeToNameStr<ShaderModule>(), std::make_shared<std::mutex>()});
     m_resourceMutexMap.insert({resourceTypeToNameStr<GraphicsPSOTemplate>(), std::make_shared<std::mutex>()});
     m_resourceMutexMap.insert({resourceTypeToNameStr<ComputePSOTemplate>(), std::make_shared<std::mutex>()});
-    m_resourceMutexMap.insert({resourceTypeToNameStr<GraphicsRenderPassInfo>(), std::make_shared<std::mutex>()});
+    m_resourceMutexMap.insert({resourceTypeToNameStr<GraphicsPass>(), std::make_shared<std::mutex>()});
+    m_resourceMutexMap.insert({resourceTypeToNameStr<FrameBuffer>(), std::make_shared<std::mutex>()});
     m_resourceMutexMap.insert({resourceTypeToNameStr<Sampler>(), std::make_shared<std::mutex>()});
     m_resourceMutexMap.insert({resourceTypeToNameStr<vk::Fence>(), std::make_shared<std::mutex>()});
     m_resourceMutexMap.insert({resourceTypeToNameStr<vk::Semaphore>(), std::make_shared<std::mutex>()});
@@ -138,7 +144,10 @@ Device::~Device()
 {
     freeResource<DescriptorSetLayout>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
     freeResource<ShaderModule>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
-    freeResource<GraphicsRenderPassInfo>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
+    freeResource<GraphicsPSOTemplate>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
+    freeResource<ComputePSOTemplate>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
+    freeResource<GraphicsPass>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
+    freeResource<FrameBuffer>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
     freeResource<Sampler>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap);
     for (auto &pair : m_resourceMutexMap)
         m_resourceMutexMap.erase(pair.first);
@@ -269,11 +278,16 @@ std::shared_ptr<ComputePSOTemplate> Device::requestComputePSOTemplate(std::share
     return requestResource<ComputePSOTemplate>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, shader);
 }
 
-std::shared_ptr<GraphicsRenderPassInfo> Device::requestRenderPass(const std::vector<AttachmentInfo> &attachments,
-                                                                  const std::vector<AttachmentLoadStoreInfo> &lsInfos,
-                                                                  const std::vector<GraphicsRenderSubpassInfo> &subpassInfos)
+std::shared_ptr<GraphicsPass> Device::requestRenderPass(const std::vector<AttachmentInfo> &attachments,
+                                                        const std::vector<AttachmentLoadStoreInfo> &lsInfos,
+                                                        const std::vector<GraphicsRenderSubpassInfo> &subpassInfos)
 {
-    return requestResource<GraphicsRenderPassInfo>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, attachments, lsInfos, subpassInfos);
+    return requestResource<GraphicsPass>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, attachments, lsInfos, subpassInfos);
+}
+
+std::shared_ptr<FrameBuffer> Device::requestFrameBuffer(std::shared_ptr<GraphicsPass> renderpass, const FrameBufferInfo &info)
+{
+    return requestResource<FrameBuffer>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, renderpass, info);
 }
 
 std::shared_ptr<Sampler> Device::requestSampler(const vk::SamplerCreateInfo &info)
@@ -321,7 +335,10 @@ void Device::checkReleaseResources()
 {
     tickReleaseResource<DescriptorSetLayout>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
     tickReleaseResource<ShaderModule>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
-    tickReleaseResource<GraphicsRenderPassInfo>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
+    tickReleaseResource<GraphicsPSOTemplate>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
+    tickReleaseResource<ComputePSOTemplate>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
+    tickReleaseResource<GraphicsPass>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
+    tickReleaseResource<FrameBuffer>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
     tickReleaseResource<Sampler>(shared_from_this(), m_resourceObjectMap, m_resourceMutexMap, m_resourceObjectLatencyMap);
     while (!m_recyclePool.empty())
     {

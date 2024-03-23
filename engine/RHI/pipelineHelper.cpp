@@ -387,7 +387,8 @@ void PipelineStateObjectBase::bindToCommand(vk::CommandBuffer &cmd)
         sets.emplace_back(pair.second->operator vk::DescriptorSet());
 
     cmd.bindPipeline(m_pipelineType, m_pipeline);
-    cmd.bindDescriptorSets(m_pipelineType, m_template->m_layout, 0, sets, {});
+    if (!sets.empty())
+        cmd.bindDescriptorSets(m_pipelineType, m_template->m_layout, 0, sets, {});
 }
 
 void PipelineStateObjectBase::uploadPushConstant(vk::CommandBuffer &cmd)

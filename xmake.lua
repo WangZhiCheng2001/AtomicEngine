@@ -10,12 +10,13 @@ if(is_mode("debug")) then
 end
 
 set_runtimes("MD")
-add_requires("imgui v1.90", {configs = {sdl2_no_renderer = true, vulkan = true}})
+add_requires("imgui v1.90.3-docking", {configs = {sdl2_no_renderer = true, vulkan = true}})
 add_requires("vulkansdk", {configs = {utils = vulkanSubmodules}})
 add_requires("spdlog")
 add_requires("glm")
 add_requires("freeimage")
-add_requires("stb")
+add_requires("fast_obj")
+add_requires("tinyxml2")
 
 includes("./builtin_resources")
 includes("./editor")

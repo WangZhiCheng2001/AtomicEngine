@@ -1,4 +1,4 @@
-#include <texture.hpp>
+#include <resource/texture.hpp>
 #include "dataTransferHelper.hpp" // just used to instancing LinkedBlockSuballocationHandle, maybe need to change
 
 #include "commandHelper.hpp"
@@ -263,20 +263,22 @@ void CommandBuffer::updateDescriptorSet()
     m_boundPSO->updateDescriptorSet(*this);
 }
 
-void CommandBuffer::bindFrameBuffer(const std::vector<std::shared_ptr<Texture>> &buffers)
+void CommandBuffer::bindFrameBuffer(const FrameBufferInfo &info)
 {
-    bindFrameBuffer(std::make_shared<GraphicsFrameBuffer>(castToGraphicsPSO()->getRenderpassHandle(), buffers));
-}
-
-void CommandBuffer::bindFrameBuffer(std::shared_ptr<GraphicsFrameBuffer> framebuffer)
-{
-    if (m_psoType != vk::PipelineBindPoint::eGraphics)
+    if (!m_boundPSO)
     {
-        ENGINE_LOG_ERROR("failed to bind framebuffer on command buffer: bound pso is not graphics pso.");
+        ENGINE_LOG_ERROR("failed to bind frame buffer: no bound pso template.");
         return;
     }
 
-    m_boundFrameBuffer = framebuffer;
+    if (m_psoType != vk::PipelineBindPoint::eGraphics)
+    {
+        ENGINE_LOG_ERROR("failed to bind frame buffer on command buffer: bound pso is not graphics pso.");
+        return;
+    }
+
+    m_attachments = info.attachments;
+    m_boundFrameBuffer = m_pool->m_deviceHandle->requestFrameBuffer(castToGraphicsPSO()->getRenderpassHandle(), info);
 }
 
 void CommandBuffer::bindVertexBuffers(uint32_t firstBinding, const std::vector<LinkedBlockSuballocationHandle> &buffers)
@@ -347,17 +349,19 @@ void CommandBuffer::insertBufferBarrier(const LinkedBlockSuballocationHandle &bu
         .setSize(size_);
 
     auto queue = buffer.getBasedBufferHandle()->getOwnerQueue();
-    if(queue == nullptr || !dstQueueHandle || queue->queue_family_index == dstQueueHandle->queue_family_index)
+    if (queue == nullptr || !dstQueueHandle || queue->queue_family_index == dstQueueHandle->queue_family_index)
     {
         barrier.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
             .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
         buffer.getBasedBufferHandle()->resetOwnerQueue(m_pool->m_queue);
     }
-    else 
+    else
     {
         barrier.setSrcQueueFamilyIndex(queue->queue_family_index)
-                .setDstQueueFamilyIndex(dstQueueHandle->queue_family_index);
-        buffer.getBasedBufferHandle()->resetOwnerQueue(dstQueueHandle);
+            .setDstQueueFamilyIndex(dstQueueHandle->queue_family_index);
+        // only reset owner queue when queue acquires resource
+        if (dstQueueHandle->queue_family_index == m_pool->m_queue->queue_family_index)
+            buffer.getBasedBufferHandle()->resetOwnerQueue(dstQueueHandle);
     }
 }
 
@@ -373,17 +377,19 @@ void CommandBuffer::insertImageBarrier(std::shared_ptr<Image> image, vk::Pipelin
         .setSubresourceRange(range);
 
     auto queue = image->getOwnerQueue();
-    if(queue == nullptr || !dstQueueHandle || queue->queue_family_index == dstQueueHandle->queue_family_index)
+    if (queue == nullptr || !dstQueueHandle || queue->queue_family_index == dstQueueHandle->queue_family_index)
     {
         barrier.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
             .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
         image->resetOwnerQueue(m_pool->m_queue);
     }
-    else 
+    else
     {
         barrier.setSrcQueueFamilyIndex(queue->queue_family_index)
-                .setDstQueueFamilyIndex(dstQueueHandle->queue_family_index);
-        image->resetOwnerQueue(dstQueueHandle);
+            .setDstQueueFamilyIndex(dstQueueHandle->queue_family_index);
+        // only reset owner queue when queue acquires resource
+        if (dstQueueHandle->queue_family_index == m_pool->m_queue->queue_family_index)
+            image->resetOwnerQueue(dstQueueHandle);
     }
 }
 
@@ -425,7 +431,7 @@ void CommandBuffer::beginRenderPass(vk::Rect2D renderArea,
     this->beginRenderPass2(info, subpassInfo);
 }
 
-void CommandBuffer::nextSubPass()
+void CommandBuffer::nextSubpass()
 {
     vk::SubpassBeginInfo beginInfo{};
     beginInfo.setContents(m_subpassContents);
@@ -448,10 +454,17 @@ void CommandBuffer::endRenderPass()
     vk::SubpassEndInfo info{};
 
     this->endRenderPass2(info);
+
+    auto pass = castToGraphicsPSO()->getRenderpassHandle();
+    for (auto i = 0; i < pass->getRenderTargetCount(); ++i)
+        m_attachments[i]->resetLayout(pass->getAttachmentFinalLayout(i));
 }
 
 void CommandBuffer::executeBarriers()
 {
+    if (m_cachedGlobalBarriers.empty() && m_cachedBufferBarriers.empty() && m_cachedImageBarriers.empty())
+        return;
+
     vk::DependencyInfo info{};
     info.setMemoryBarriers(m_cachedGlobalBarriers)
         .setBufferMemoryBarriers(m_cachedBufferBarriers)
@@ -483,7 +496,7 @@ std::shared_ptr<ComputePipelineStateObject> CommandBuffer::castToComputePSO() co
 bool CommandBuffer::isRenderSizeOptimal(const vk::Rect2D &renderArea)
 {
     auto granularity = castToGraphicsPSO()->getRenderpassHandle()->getRenderAreaGranularity();
-    auto extent = m_boundFrameBuffer->getExtent();
+    auto extent = m_attachments.front()->getExtent();
     return ((renderArea.offset.x % granularity.width == 0) && (renderArea.offset.y % granularity.height == 0) &&
             ((renderArea.extent.width % granularity.width == 0) || (renderArea.offset.x + renderArea.extent.width == extent.width)) &&
             ((renderArea.extent.height % granularity.height == 0) || (renderArea.offset.y + renderArea.extent.height == extent.height)));
@@ -577,7 +590,7 @@ void CommandPool::batchSubmit(bool wait, std::shared_ptr<vk::Fence> fence)
             .setWaitSemaphores(m_waitSemaphores)
             .setWaitDstStageMask(m_waitStages);
 
-        m_queue->queue_handle->submit(info, *fence);
+        m_queue->queue_handle->submit(info, fence ? *fence : vk::Fence{});
 
         if (wait)
         {
