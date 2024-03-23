@@ -1,6 +1,6 @@
 target("ShaderBuilder")
     set_kind("object")
-    add_rules("utils.glsl2spv", {bin2c = true, outputdir = "builtin_resources/shaders/compiled"})
+    add_rules("utils.glsl2spv", {targetenv = "vulkan1.3", bin2c = true, outputdir = "builtin_resources/shaders/compiled"})
     add_files("./shaders/**.vert", "./shaders/**.frag", "./shaders/**.comp")
 target_end()
 

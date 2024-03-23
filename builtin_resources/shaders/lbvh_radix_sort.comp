@@ -112,7 +112,7 @@ void main() {
       uint binOffset = 0;
       if (ID < elementCount) {
         if (iteration % 2 == 0) {
-          inputElement = inputElement[ID];
+          inputElement = inputElements[ID];
         } else {
           inputElement = outputElements[ID];
         }
