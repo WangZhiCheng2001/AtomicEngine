@@ -1,0 +1,10 @@
+add_requires("vksdk")
+-- add_requires("spirv-cross")
+
+target("AtomEngine_Graphics_AGPU")
+    set_kind("shared")
+    add_includedirs("./include", { public = true })
+    add_files("./src/build.**.c", "./src/build.**.cpp")
+    add_defines("SHARED_MODULE")
+    add_deps("AtomEngine_Core")
+    add_packages("vksdk")

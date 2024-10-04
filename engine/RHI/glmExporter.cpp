@@ -1,8 +1,0 @@
-#define GLM_FORCE_INLINE
-#define GLM_FORCE_SWIZZLE
-#define GLM_FORCE_ALIGNED_GENTYPES
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
-#define GLM_FORCE_INTRINSICS
-#include <glm/glm.hpp>
-#include <glm/ext.hpp>

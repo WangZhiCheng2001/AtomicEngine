@@ -1,19 +1,12 @@
-#ifndef _STRUCTURE_LBVH_
-#define _STRUCTURE_LBVH_
+#ifndef _STRUCTURE_LBVH
+#define _STRUCTURE_LBVH
 
-// only used on the GPU side during construction; it is necessary to allocate
-// the (empty) buffer
-struct MortonCodeAttribute {
-  uint mortonCode; // key for sorting
-  uint elementIdx; // pointer into element buffer
+struct LBVHNode
+{
+    vec3 aabbMin;
+    uint next;
+    vec3 aabbMax;
+    uint primitiveIndex;
 };
 
-// input for the builder (normally a triangle or some other kind of primitive);
-// it is necessary to allocate and fill the buffer
-// however it can be filled on GPU by input vertex & index buffer
-struct Element {
-  vec3 aabbMin; // aabb of the primitive
-  vec3 aabbMax;
-};
-
-#endif // _STRUCTURE_LBVH_
+#endif // _STRUCTURE_LBVH

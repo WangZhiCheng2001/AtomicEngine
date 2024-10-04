@@ -27,3 +27,8 @@ project building on windows 10 with MSVC v143 has been tested.
 - [X] ~~WAR sync error occured between buffer copy and indexed draw command in ImGui rendering pipeline.~~
 - [ ] after interacting with ImGui, interacting with main window (SDL_window) is ignored.
 - [ ] wrong/incomplete destruction of resources when shutting down the engine (see function `Engine::deinitialize()`)
+
+## Future work
+
+- [ ] a real `RHI` module which wraps Vulkan objects, and move most of codes of current `RHI` module to upper function layers (like `renderer`).
+- [ ] modify buffer creation with `resource ownership` (i.e. `TOTALLY_EXCLUSIVE`, `EXCLUSIVE_WITH_TRANSFERRING`, `CONCLUSIVE`). If `EXCLUSIVE_WITH_TRANSFERRING`, just allocate a dedicated & isolated buffer block. Through this, resource ownership issue may be solved.

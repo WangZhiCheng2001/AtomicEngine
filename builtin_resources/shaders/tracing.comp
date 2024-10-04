@@ -1,0 +1,166 @@
+#version 460
+#extension GL_EXT_debug_printf : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : enable
+#extension GL_EXT_control_flow_attributes : enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "structure/global_geometry.glsl"
+#include "structure/lbvh.glsl"
+#include "structure/light.glsl"
+
+layout(set = 0, binding = 0) readonly buffer Vertex { VertexAttribute vertices[]; };
+
+layout(set = 0, binding = 1) readonly buffer Index { uint indices[]; };
+
+layout(set = 0, binding = 2) readonly buffer Face { FaceAttribute faces[]; };
+
+layout(set = 0, binding = 3) readonly buffer Material { MaterialAttribute materials[]; };
+
+layout(set = 0, binding = 4) readonly buffer Light { LightAttribute lights[]; };
+
+layout(std430, set = 0, binding = 5) readonly buffer LightAliasTable { AliasTableElement lightAlias[]; };
+
+layout(set = 0, binding = 6) readonly buffer LBVH { LBVHNode bvhNodes[]; };
+
+layout(set = 0, binding = 7) readonly buffer Random { float randomSeq[]; };
+
+layout(set = 1, binding = 0) uniform sampler2D gbuffer;
+layout(set = 1, binding = 1) uniform sampler2D depthBuffer;
+layout(set = 1, binding = 2) uniform sampler2D textures[64];
+
+layout(set = 2, binding = 0, rgba32f) uniform image2D sampleResult;
+
+layout(set = 3, binding = 0) readonly buffer AreaLightMapping { uint primToLightMap[]; };
+
+layout(push_constant) uniform PushConstants
+{
+    mat4  matrixView;
+    mat4  matrixProj;
+    uint  currentFrameIndex;
+    uint  sampleCount;
+    uint  sampleDimension;
+    uint  widthPower;
+    uint  heightPower;
+    uint  widthInvElem;
+    uint  heightInvElem;
+    float roulettePdf;
+};
+
+#include "intersect/lbvh.glsl"
+#include "sample/bxdfMaterial.glsl"
+#include "sample/phongMaterial.glsl"
+#include "sample/light.glsl"
+#include "utils/random.glsl"
+#include "math/bxdf.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main()
+{
+    const uvec2 resolution     = imageSize(sampleResult);
+    const uint  primitiveCount = indices.length() / 3;
+    if (gl_GlobalInvocationID.x >= resolution.x || gl_GlobalInvocationID.y >= resolution.y) return;
+
+    const uint sampleOffsetBase = getSampleOffsetBase(gl_GlobalInvocationID.xy);
+    uint       sampleOffset     = sampleOffsetBase + (currentFrameIndex % randomSeq.length());
+    sampleOffset                = (sampleOffset * sampleDimension) % randomSeq.length();
+    uint samplingDim            = 0U;
+    // uint rng = tea((gl_GlobalInvocationID.y << 16) | gl_GlobalInvocationID.x, currentFrameIndex + 1);
+
+    const vec2         samplePixel  = vec2(gl_GlobalInvocationID.xy + random2D(sampleOffset, samplingDim)) / resolution;
+    Ray                ray          = generateCameraRay(samplePixel, matrixView, matrixProj);
+    IntersectionRecord intersectRec = createIntersectionRecord();
+    // rayIntersectBVH(ray, intersectRec);
+
+    // give first intersection from gbuffer
+    // TriangleSampleRecord sampledTriangle = getTriangleAttribute(intersectRec.primitiveIndex, intersectRec.barycentricCoord);
+    TriangleSampleRecord sampledTriangle =
+        sampleVisibilityBuffer(samplePixel, vec2(resolution), matrixView, matrixProj, intersectRec.primitiveIndex);
+    ray.t                         = ((sampledTriangle.position - ray.origin) / ray.direction).x;
+    // PhysicalBxDFMaterial sampledMaterial =
+    //     extractPhysicalBxDFMaterial(sampledTriangle.materialIndex,
+    //                                 vec2(sampledTriangle.texCoordU, sampledTriangle.texCoordV),
+    //                                 sampledTriangle.dpdx,
+    //                                 sampledTriangle.dpdy,
+    //                                 sampledTriangle.normal);
+    PhongMaterial sampledMaterial = extractPhongMaterial(sampledTriangle.materialIndex,
+                                                         vec2(sampledTriangle.texCoordU, sampledTriangle.texCoordV),
+                                                         sampledTriangle.dpdx,
+                                                         sampledTriangle.dpdy,
+                                                         sampledTriangle.normal);
+
+    // miss first hit
+    if (intersectRec.primitiveIndex == ~0U) {
+        imageStore(sampleResult, ivec2(gl_GlobalInvocationID.xy), vec4(.0f, .0f, .0f, 1.f));
+        return;
+    }
+
+    // first hit is to light
+    if (primToLightMap[intersectRec.primitiveIndex] != ~0U) {
+        imageStore(sampleResult,
+                   ivec2(gl_GlobalInvocationID.xy),
+                   vec4(sampledMaterial.emission * (currentFrameIndex + 1), 1.f));
+        return;
+    }
+
+    vec3         radiance = vec3(.0f);
+    SampleRecord materialSampleRec, lightSampleRec;
+    for (uint tracingDepth = 0U; max(max(ray.contribution.r, ray.contribution.g), ray.contribution.b) >= CONSTANT_EPS;
+         ++tracingDepth) {
+        // NEE: shoot direct light/shadow ray
+        sampleLights(sampledTriangle.position, random4D(sampleOffset, samplingDim), lightSampleRec);
+        if (lightSampleRec.validFlag) {
+            // evaluate material sample to get material pdf
+            // in order to operate MIS
+            materialSampleRec.directionOut = lightSampleRec.directionOut;
+            evaluateMaterial(ray, sampledMaterial, materialSampleRec);
+            // evaluateDiffuse(lightSampleRec.directionOut, sampledMaterial, materialSampleRec);
+            float misWeight  = powerWeightHeuristic(lightSampleRec.pdf, materialSampleRec.pdf);
+            radiance        += ray.contribution * misWeight
+                        * (lightSampleRec.contribution * materialSampleRec.contribution
+                           * abs(dot(-ray.direction, sampledMaterial.normal)));
+        }
+
+        sampleMaterial(ray, sampledMaterial, random4D(sampleOffset, samplingDim), materialSampleRec);
+        // sampleDiffuse(sampledMaterial, random2D(sampleOffset, samplingDim), materialSampleRec);
+        // no valid material sample, end sampling
+        if (!materialSampleRec.validFlag || random1D(sampleOffset, samplingDim) >= roulettePdf) break;
+        ray.contribution *= materialSampleRec.contribution * abs(dot(-ray.direction, sampledMaterial.normal))
+                            / (materialSampleRec.pdf * roulettePdf);
+        nextRay(ray, materialSampleRec.directionOut);
+        rayIntersectBVH(ray, intersectRec);
+        // the ray miss hit
+        // since we use black background for now, directly end sampling
+        if (!hasHit(ray)) break;
+
+        // update hit & material infos
+        sampledTriangle = getTriangleAttribute(intersectRec.primitiveIndex, intersectRec.barycentricCoord);
+        // sampledMaterial = extractPhysicalBxDFMaterial(sampledTriangle.materialIndex,
+        //                                               vec2(sampledTriangle.texCoordU, sampledTriangle.texCoordV),
+        //                                               sampledTriangle.dpdx,
+        //                                               sampledTriangle.dpdy,
+        //                                               sampledTriangle.normal);
+        sampledMaterial = extractPhongMaterial(sampledTriangle.materialIndex,
+                                               vec2(sampledTriangle.texCoordU, sampledTriangle.texCoordV),
+                                               sampledTriangle.dpdx,
+                                               sampledTriangle.dpdy,
+                                               sampledTriangle.normal);
+
+        // the ray hits a light, update radiance and end sampling
+        if (primToLightMap[intersectRec.primitiveIndex] != ~0U) {
+            float NdotL = dot(sampledMaterial.normal, -ray.direction);
+            if (NdotL < CONSTANT_EPS) break;
+            LightAttribute light = lights[primToLightMap[intersectRec.primitiveIndex]];
+            float          misWeight =
+                powerWeightHeuristic(ray.t * ray.t * light.pdf / (NdotL * lights.length()), materialSampleRec.pdf);
+            radiance += ray.contribution * sampledMaterial.emission * misWeight;
+            break;
+        }
+
+        // in order to keep corresponding variable in same distribution, we need to restore sample state
+        sampleOffset = (sampleOffset + sampleDimension) % randomSeq.length();
+        samplingDim  = 2U;
+    }
+
+    imageStore(sampleResult, ivec2(gl_GlobalInvocationID.xy), vec4(radiance, 1.f));
+}

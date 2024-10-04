@@ -1,8 +1,0 @@
-target("Editor")
-    set_kind("binary")
-    add_includedirs("./", "./entity", "./gui", "./pass")
-    add_files("./**.cpp")
-    -- add_files("./*/*.cpp")
-    add_deps("Engine")
-    add_deps("BuiltinResources")
-    add_packages("imgui", "spdlog", "glm", "tinyxml2")
